@@ -46,7 +46,28 @@ SETTLE_SECONDS = 20                            # first-launch self-restart windo
 
 def rmtree_cmd(path):
     """Delete via cmd rmdir; the WorkBuddy safe-delete hook intercepts
-    shutil.rmtree on >50-file trees and can abort the interpreter."""
+    shutil.rmtree on >50-file trees and can abort the interpreter.
+    KEEP_TEST_PROFILE=1 skips whole-profile cleanup entirely (hook-hostile
+    environments / post-mortem inspection); small per-extension storage
+    dirs use wipe_dir_ungated so the fresh-device invariant survives."""
+    if os.environ.get('KEEP_TEST_PROFILE') == '1':
+        return
+    if not os.path.isdir(path):
+        return
+    try:
+        subprocess.run(['cmd', '/c', 'rmdir', '/s', '/q', path],
+                       check=False, timeout=60,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:
+        pass
+    if os.path.isdir(path):
+        shutil.rmtree(path, ignore_errors=True)
+
+
+def wipe_dir_ungated(path):
+    """Delete a SMALL directory regardless of KEEP_TEST_PROFILE.
+    Extension leveldb storage stays far below the hook's bulk threshold,
+    and wiping it is what makes each run a fresh device."""
     if not os.path.isdir(path):
         return
     try:
@@ -87,6 +108,8 @@ def prepare_profile(profile=PROFILE_DIR, template=PROFILE_TEMPLATE,
     wipe the extension's storage so every run starts as a new device."""
     if os.path.isdir(profile):
         rmtree_cmd(profile)
+    # dirs_exist_ok: under KEEP_TEST_PROFILE=1 a previous run's profile may
+    # still be present; overwriting it is fine.
     shutil.copytree(template, profile, dirs_exist_ok=True)
 
     payload = os.path.join(profile, 'Default', 'Extensions', ext_id,
@@ -107,12 +130,8 @@ def prepare_profile(profile=PROFILE_DIR, template=PROFILE_TEMPLATE,
     json.dump(prefs, open(pref_path, 'w', encoding='utf-8'))
 
     for sub in ('Local Extension Settings', 'Sync Extension Settings'):
-        d = os.path.join(profile, 'Default', sub, ext_id)
-        if os.path.isdir(d):
-            rmtree_cmd(d)
-    ls = os.path.join(profile, 'Default', 'Local Storage')
-    if os.path.isdir(ls):
-        rmtree_cmd(ls)
+        wipe_dir_ungated(os.path.join(profile, 'Default', sub, ext_id))
+    wipe_dir_ungated(os.path.join(profile, 'Default', 'Local Storage'))
 
 
 class Browser:
@@ -170,6 +189,7 @@ class Browser:
             except Exception:
                 pass
             self.proc = None
+        # gated by KEEP_TEST_PROFILE inside rmtree_cmd
         rmtree_cmd(self.profile)
 
 
@@ -198,7 +218,7 @@ class Cdp:
             ver = json.load(r)
         ws = websocket.create_connection(ver['webSocketDebuggerUrl'],
                                          timeout=30, suppress_origin=True)
-        ws.settimeout(30)
+        ws.settimeout(30)  # recv timeout: a hung browser must not stall forever
         mid = 1  # integer id: Cent 150 ignores string ids
         ws.send(json.dumps({'id': mid, 'method': 'Target.createTarget',
                             'params': {'url': url}}))

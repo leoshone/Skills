@@ -51,7 +51,7 @@ print('state:', v.get('state'))          # 期望 1 (启用)
 ### Step 1 每次测试前：从模板生成「新设备」profile
 
 ```python
-import shutil, os, json
+import shutil, os, json, subprocess
 
 TEMPLATE = r'<模板 profile 路径>'
 PROFILE  = r'<本次测试 profile>'
