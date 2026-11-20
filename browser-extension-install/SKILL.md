@@ -1,6 +1,6 @@
 ---
 name: browser-extension-install
-description: 在 Chromium 系浏览器上安装扩展的方法（PC 与安卓分开）：PC 端 Turbo/Cent 商店或 crx 安装（MV2），安卓端 Kiwi 侧载、Quetta 商店；自开发扩展（如 ubo_davsync）统一走开发者模式本地加载。附 CDP 自动化安装与回归测试要点。触发词：扩展安装、安装扩展、uBO、暴力猴、Tampermonkey、侧载、load-extension、CDP、chrome-extension、MV2、Kiwi、Quetta、Turbo、Cent。
+description: 在 Chromium 系浏览器上安装扩展的可执行方法（PC 与安卓分开）：PC 端 Turbo/Cent 商店或 crx 安装（MV2），安卓端 Kiwi 侧载、Quetta 商店；自开发扩展（如 ubo_davsync）统一走开发者模式本地加载。每步标注 AI 可自动化程度，附可直接执行的命令。触发词：扩展安装、安装扩展、uBO、暴力猴、Tampermonkey、侧载、load-extension、CDP、chrome-extension、MV2、Kiwi、Quetta、Turbo、Cent。
 agent_created: true
 ---
 
@@ -10,39 +10,103 @@ agent_created: true
 
 按平台 → 浏览器组织安装方法。核心经验来自 uBlock Origin fork（ubo_davsync）与暴力猴在 Turbo/Cent/Kiwi/Quetta 上的多轮实测（2026-10 ~ 11）。
 
+**自动化程度标注**：【AI 自动】= 全程命令可执行；【人工一次】= 需要人点一次（AI 可验证结果）；【半自动】= AI 执行 UI 操作（uiautomator/input tap 或 UIA/SendInput），坐标或控件定位可能随版本漂移。
+
 ## 方法总览
 
 | 平台 | 浏览器 | 内核 | 商店安装 | crx 文件安装 | 本地加载（自开发扩展） |
 |---|---|---|---|---|---|
-| PC | Turbo / Cent（百分） | 新（150+，保留 MV2） | ✅ 商店直接装 | ✅ 开发者模式拖入 crx（MV2 可用） | ✅ 加载已解压目录 |
+| PC | Turbo / Cent（百分） | 新（150+，保留 MV2） | ✅ 商店直接装【半自动】 | ✅ 开发者模式拖入 crx（MV2 可用）【半自动】 | ✅ 加载已解压目录【半自动】 |
 | PC | 官方 Chrome 137+ / Edge | 新，MV2 已移除 | 仅 MV3 | ❌ MV2 被拒 | 仅 MV3 |
-| 安卓 | Quetta | 新（148） | ✅ 商店直接装 | ✅ | ✅ |
-| 安卓 | Kiwi | 老（137） | ❌ 商店判内核不兼容（实测 2026-11） | ✅ 扩展页侧载 crx/zip（**唯一可靠**） | ✅ |
-| 安卓 | Kiwi | x86 构建要求 | — | 必须 `-x86-` 构建；arm64 走 houdini 翻译渲染进程全灭（页面全白） | — |
+| 安卓 | Quetta | 新（148） | ✅ 商店直接装【半自动】 | ✅【半自动】 | ✅【半自动】 |
+| 安卓 | Kiwi | 老（137） | ❌ 商店判内核不兼容（实测 2026-11） | ✅ 扩展页侧载 crx/zip【半自动】（**唯一可靠**） | ✅【人工一次】 |
+| 安卓 | Kiwi 构建要求 | x86 | — | 必须 `-x86-` 构建；arm64 走 houdini 翻译渲染进程全灭（页面全白） | — |
+
+**PC 原生对话框的自动化**（"添加扩展程序？"确认框、"选择文件夹"对话框都不在网页 DOM 里，CDP 点不到）：
+UIA 定位按钮矩形 → `SendInput` 真实鼠标点击（`BM_CLICK`/UIA Invoke 对 IFileDialog 无效）→ 对输入框 hwnd 发 `WM_SETTEXT`（UIA ValuePattern 跨进程失败）→ `SendInput` 点确认。
+注意：RDP 断开后 SendInput/SetCursorPos 全部失效——自动化验证必须在 RDP 活跃时做，或改用下面的 INTERNAL profile 方案（纯文件操作，【AI 自动】）。
 
 ## PC 端（Turbo / Cent）
 
-### 商店安装（现成扩展）
+浏览器路径：`D:\Software\Cent\chrome.exe`、`D:\Software\Turbo\turbo.exe`。带 CDP 启动（AI 自动化回归用）：
 
-1. 启动浏览器，打开 Chrome Web Store 扩展详情页 → 「添加至 Chrome」→ 确认。
-2. Turbo/Cent 保留 MV2，商店里的 MV2 扩展（如 uBO、暴力猴）可直接装。
+```bash
+"D:/Software/Cent/chrome.exe" --user-data-dir="<profile目录>" \
+  --remote-debugging-port=9447 --no-first-run --no-default-browser-check \
+  --disable-background-networking about:blank &
+# 等 CDP 就绪：轮询 http://127.0.0.1:9447/json/version
+```
+
+### 商店安装（现成扩展）【半自动】
+
+1. AI：CDP `Target.createTarget` 打开商店详情页（如暴力猴 `https://chromewebstore.google.com/detail/violentmonkey/jinjaccalgkegednnccohejagnlnfdag`）；
+2. AI：attach 后 `Runtime.evaluate` 点页面上的「添加至 Chrome」按钮；
+3. **人工/AI-SendInput**：浏览器原生确认框「添加扩展程序？」点确认（见上"原生对话框自动化"）；
+4. AI：验证——CDP `/json` 出现 `background_page` target（MV2）或 `chrome-extension://` 页面。
 
 ### crx 文件安装（MV2 / 无商店版本）
 
-1. 启动浏览器（独立 `--user-data-dir=<模板目录>`），`chrome://extensions` 开右上角「开发者模式」；
-2. 把 crx 拖进 `chrome://extensions`（或命令行传 crx 路径）完成安装；
-3. 确认安装形态为 INTERNAL：`Preferences` 里 `location:1`、`state:1`，payload 在 `Default/Extensions/<id>/<ver>_1`——重启持久启用（区别于 `--load-extension` 的会话级）。
+两种做法：
+
+**做法 1：INTERNAL 模板 profile（【AI 自动】，推荐用于自动化回归）**
+
+扩展以 crx 正规装进 profile 后（`Preferences` 里 `location:1`、`state:1`），后续都可脚本化。一次性搭建【人工一次】：
+
+1. 启动浏览器开「开发者模式」，把 crx 拖进 `chrome://extensions`；
+2. 之后 AI 即可通过复制模板 + 覆盖 payload 实现全自动安装（见下）。
+
+AI 自动复制模板安装（Cent/Turbo 不做 payload hash 校验）：
+
+```bash
+python -c "
+import shutil, os, json, subprocess
+TEMPLATE = r'<模板 profile>'
+PROFILE  = r'<本次 profile>'
+EXT_ID   = '<扩展ID>'
+BUILD    = r'<解包构建目录>'
+if os.path.isdir(PROFILE):
+    subprocess.run(['cmd','/c','rmdir','/s','/q',PROFILE])
+shutil.copytree(TEMPLATE, PROFILE, dirs_exist_ok=True)
+payload = os.path.join(PROFILE,'Default','Extensions',EXT_ID,os.listdir(os.path.join(TEMPLATE,'Default','Extensions',EXT_ID))[0])
+for root, dirs, files in os.walk(BUILD):
+    rel = os.path.relpath(root, BUILD)
+    os.makedirs(os.path.join(payload, rel), exist_ok=True)
+    for f in files: shutil.copy2(os.path.join(root,f), os.path.join(payload,rel,f))
+pref = os.path.join(PROFILE,'Default','Preferences')
+prefs = json.load(open(pref, encoding='utf-8'))
+entry = prefs['extensions']['settings'][EXT_ID]
+entry['manifest']['version'] = json.load(open(os.path.join(BUILD,'manifest.json'), encoding='utf-8'))['version']
+json.dump(prefs, open(pref,'w', encoding='utf-8'))
+print('OK')
+"
+```
+
+**做法 2：拖入 crx（【人工一次】）**
+
+启动浏览器（上面命令）→ 开发者模式 → 把 crx 拖进 `chrome://extensions` 窗口。
+"命令行传 crx 路径"实测不可靠，不要依赖。
+
+验证（AI 自动）：
+
+```bash
+python -c "
+import json
+p = json.load(open(r'<profile>/Default/Preferences', encoding='utf-8'))
+v = p['extensions']['settings'].get('<扩展ID>', {})
+print('location:', v.get('location'), 'state:', v.get('state'))   # 期望 1 1
+"
+```
 
 crx 打包要点（自开发扩展）：
 - manifest.json 必须带 `"key"`（RSA 公钥 base64），否则扩展 ID 不固定；ID = SHA256(公钥 DER) 前 32 hex 映射到 a-p，同一把 pem 永远同一 ID；
 - 用 `crx3` npm 工具打包；手写 CRX3 protobuf 会被拒（CRX_REQUIRED_PROOF_MISSING）；
 - 安装前提：目标 profile 开发者模式已开，否则 CRX_SIGNATURE_VERIFICATION_FAILED。
 
-### 本地加载（自开发扩展，如 ubo_davsync）
+### 本地加载（自开发扩展，如 ubo_davsync）【半自动】
 
-1. `chrome://extensions` 开「开发者模式」；
-2. 「加载已解压的扩展程序」→ 选含 manifest.json 的构建目录；
-3. 改代码后点扩展卡片上的「重新加载」即生效。
+1. AI：CDP 打开 `chrome://extensions`（`Target.createTarget`）；
+2. AI：开发者模式 toggle 和「加载已解压的扩展程序」按钮可 JS click，但弹出的文件夹选择框是原生 IFileDialog——需要 UIA+SendInput 自动化（见"原生对话框自动化"）或人工选择目录；
+3. AI：验证——CDP `/json` 出现该扩展 target；改代码后在扩展卡片「重新加载」（这个按钮在 DOM 里，可 JS click）。
 
 不要用 `--load-extension` 命令行参数：
 - 官方 Chrome/Edge：参数已移除 + MV2 被禁，双重不可行；
@@ -52,49 +116,69 @@ crx 打包要点（自开发扩展）：
 
 ## 安卓端
 
+前置：模拟器/设备已连接 adb，浏览器已启动。CDP 接入（AI 自动）：
+
+```bash
+ADB="D:/Software/Android/SDK/platform-tools/adb.exe"
+"$ADB" start-server
+"$ADB" -s emulator-5554 forward tcp:9222 localabstract:chrome_devtools_remote
+curl -s --noproxy "*" http://127.0.0.1:9222/json/version   # Quetta 同理，socket 名可能带 pid 后缀
+```
+
+安卓 UI 操作通用套路（AI 半自动）：`adb shell uiautomator dump /data/local/tmp/ui.xml` → 解析 XML 拿目标控件 `bounds` 中心坐标 → `adb shell input tap x y`。Kiwi/Quetta 的安装确认框是安卓原生 dialog，必须走这条路（不在网页 DOM）。
+
 ### Quetta（内核新，148）
 
-- 商店安装：打开 Chrome Web Store 详情页 → Add to Chrome → 确认，与 PC 相同。
-- 本地加载（自开发扩展）：与 PC 相同（开发者模式 + 加载已解压目录）。
-- crx 文件安装同样可用。
+- **商店安装**【半自动】：`am start -a android.intent.action.VIEW -d '<商店详情URL>'` 打开页面 → CDP 点 Add to Chrome → uiautomator 找安卓确认框点确认。
+- **本地加载**【人工一次】：扩展页开开发者模式 + 选目录（文件选择器需人工，或 UIA 自动化）。
+- **crx 文件安装**【半自动】：同 Kiwi 侧载流程（文件选择器选中 crx/zip）。
 
 ### Kiwi（内核老，137）
 
 商店安装**不可用**：商店按 UA 内核版本判定，实测直接显示 "This item is not
-compatible with your current Chrome version"，Add to Chrome 点击无反应。
+compatible with your current Chrome version"，Add to Chrome 点击无反应。先看页面有没有兼容性警告再点，有就直接转侧载。
 
-用 **crx/zip 侧载**（已验证）：
+用 **crx/zip 侧载**（已验证，全流程 AI 可执行）：
 
-1. 下载扩展 crx（如暴力猴 GitHub releases 的 `Violentmonkey-mv2-vX.Y.Z.crx`），
-   `adb push` 到 `/sdcard/Download/`；
-2. `.crx` 后缀可能不被文件选择器索引——复制改名 `.zip` 后发一次 media 扫描：
-   `am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file://<path>`；
-3. 打开 Kiwi 扩展管理页（Kiwi 是自定义页面，非标准 chrome://extensions DOM），点
-   `+ (from .zip/.crx/.user.js)` → 安卓文件选择器选中文件；
-4. 安装成功列表出现条目并标 "Not from Web Store."（正常现象）；重启浏览器生效；
-5. 验证：CDP `/json` 看扩展后台 target，或 uiautomator dump 扩展页列表。
+```bash
+# 1. 下载 crx 并 push（Git Bash 用 // 双斜杠防路径转换）
+curl -sL --ssl-no-revoke -o Violentmonkey.crx "<crx 下载 URL>"
+"$ADB" -s emulator-5554 push ./Violentmonkey.crx //sdcard//Download//Violentmonkey.crx
 
-adb 操作注意：
-- Git Bash 下 `adb push` 用 `//sdcard//` 双斜杠（或 `MSYS_NO_PATHCONV=1`），否则报成功但文件不存在；
+# 2. crx 后缀不被文件选择器索引：复制改名 .zip + media 扫描
+"$ADB" -s emulator-5554 shell "cp /sdcard/Download/Violentmonkey.crx /sdcard/Download/vm.zip"
+"$ADB" -s emulator-5554 shell "am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file:///sdcard/Download/vm.zip"
+
+# 3. 打开 Kiwi（正常启动一次浏览器）
+"$ADB" -s emulator-5554 shell "am start -n com.kiwibrowser.browser/org.chromium.chrome.browser.ChromeTabbedActivity -d 'https://www.google.com/'"
+sleep 12
+```
+
+4. 进 Kiwi 扩展管理页：菜单入口（Kiwi 菜单 → 扩展），或 CDP 对已有标签 `Page.navigate` 到 `chrome://extensions/`（`am start -d 'chrome://extensions/'` 部分版本被拦，不可靠）【AI 自动】；
+5. 点 `+ (from .zip/.crx/.user.js)` 按钮【AI 自动】：uiautomator dump 找该文本坐标 → `input tap`；
+6. 文件选择器里选中 vm.zip【AI 自动】：uiautomator dump 找文件名坐标 → `input tap`；找不到就 `input swipe` 滚动再 dump；
+7. 安装成功列表出现条目并标 "Not from Web Store."（正常）；重启浏览器生效【AI 自动】：`am force-stop` + `am start`；
+8. 验证【AI 自动】：CDP `/json` 看扩展后台 target，或 uiautomator dump 扩展页列表文本。
+
+Kiwi 专属注意：
+- 必须 x86 构建（文件名含 `-x86-`）；arm64 走 houdini 翻译，渲染进程被 SIGSYS 全灭（页面全白）；
+- Kiwi CDP socket 带 pid 后缀（`chrome_devtools_remote_<pid>`），forward 后用 `/json/version` 的 `Android-Package` 字段确认连对浏览器；
 - MuMu 多虚拟屏：`input tap` 可能要 `input -d <displayId> tap x y`；
-- Kiwi 的 CDP socket 带 pid 后缀（`chrome_devtools_remote_<pid>`），forward 后用
-  `/json/version` 的 `Android-Package` 字段确认连对浏览器；
 - 模拟器本体启动见 `avd-boot` skill。
 
-### 本地加载（自开发扩展，安卓通用）
+### 本地加载（自开发扩展，安卓通用）【人工一次】
 
-Kiwi/Quetta 与 PC 相同：扩展页开「开发者模式」→「加载已解压的扩展程序」选构建目录。
+Kiwi/Quetta 与 PC 相同：扩展页开「开发者模式」→「加载已解压的扩展程序」选构建目录（文件选择器需人工操作）。CDP 可验证注入结果。
 
-## CDP 自动化安装与测试要点（PC 端实测）
+## CDP 自动化回归要点（PC 端实测）
 
-自动化回归（含"从模板 profile 复制 → 覆盖 payload → 启动带 CDP → 驱动扩展页断言"全流程）可复用 `scripts/cdp_driver.py`（复制到项目 `_tmp/` 改常量即用）。要点：
+全流程回归（模板 profile → 启动 → 驱动扩展页 → 断言）可复用 `scripts/cdp_driver.py`（复制到项目 `_tmp/` 改常量即用）。要点：
 
-- **INTERNAL 模板 profile**：扩展以 crx 正规装的 profile 作为模板，每次测试复制它再覆盖 payload（Cent/Turbo 不做 hash 校验），并同步 prefs 里的 `manifest.version`；清除扩展存储目录得到"全新设备"。
-- 启动参数：`--user-data-dir=<profile> --remote-debugging-port=<port>`，**不带 `--load-extension`**。
-- 开扩展页用 `Target.createTarget` 钉住 targetId（不要遍历 /json 找）；导航是异步的，轮询 `location.href`。
-- CDP 消息 id 必须是整数（Cent 150 字符串 id 不回包）。
-- 杀进程用 `taskkill /F /T /PID`——`proc.terminate()` 杀不掉子进程，残留实例会占住调试端口。
-- 断言走真实 UI 路径：JS click 等效用户点击；触发动作必须走页面自己的处理器（绕过它直接 messaging.send 会导致页面渲染不发生，这类断言失败是测试缺陷）。
+- **INTERNAL 模板 profile**：每次测试复制模板再覆盖 payload，并同步 prefs 里的 `manifest.version`；清除扩展存储目录（`Local Extension Settings`/`Sync Extension Settings`/`Local Storage` 下的扩展 ID 目录）得到"全新设备"；
+- 开扩展页用 `Target.createTarget` 钉住 targetId（不要遍历 /json 找，会 attach 错页面）；导航是异步的，轮询 `location.href`；
+- CDP 消息 id 必须是整数（Cent 150 字符串 id 不回包）；
+- 杀进程用 `taskkill /F /T /PID`——`proc.terminate()` 杀不掉子进程，残留实例会占住调试端口；
+- 断言走真实 UI 路径：JS click 等效用户点击；触发动作必须走页面自己的处理器（绕过它直接 messaging.send 会导致页面渲染不发生，这类断言失败是测试缺陷）；
 - 等待文案落定用循环 + 超时（如 45s 每秒读一次 DOM）。
 
 ## 陷阱速查（全部实测踩过）
@@ -109,7 +193,8 @@ Kiwi/Quetta 与 PC 相同：扩展页开「开发者模式」→「加载已解�
 | CDP recv 超时 | 消息 id 是字符串 | id 用整数 |
 | 残留浏览器进程吞 CDP 连接 | terminate() 杀不干净 | taskkill /F /T + 启动前按端口 netstat 清理 |
 | PermissionError 读 leveldb | 浏览器还活着，文件被锁 | 先 taskkill 再读 |
-| RDP 断开后鼠标注入全失效 | 会话进入输入不可用状态 | CDP 方案不受影响（选 CDP 而非 UI 自动化的理由） |
+| RDP 断开后鼠标注入全失效 | 会话进入输入不可用状态 | CDP 方案不受影响（选 CDP 而非 UI 自动化的理由）；原生对话框自动化只能在 RDP 活跃时做 |
 | Kiwi 商店装扩展无反应 | 商店按内核版本判不兼容 | 走 crx/zip 侧载（见安卓端 Kiwi 节） |
 | Kiwi arm64 构建 → 页面全白 | houdini 翻译下渲染进程被 SIGSYS 全灭 | 必须用 x86 构建（文件名含 `-x86-`） |
+| crx 在安卓文件选择器里不显示 | SAF 不索引 .crx 后缀 | 复制改名 .zip + media 扫描（见 Kiwi 侧载步骤 2） |
 | 删 profile 时进程退出/挂起 | WorkBuddy safe-delete 钩子拦 >50 文件删除 | 测试脚本清理加环境变量门控，小目录用 cmd rmdir 强清 |
