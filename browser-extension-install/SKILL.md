@@ -1,20 +1,20 @@
 ---
-name: browser-extension-e2e
-description: 在 Windows 桌面 Chromium 系浏览器（Cent/百分/Turbo 等保留 MV2 的国产内核）上安装并自动化测试浏览器扩展的通用方法。覆盖：INTERNAL（crx 正规安装）profile 载体搭建、CDP 驱动扩展页、UI 断言、回归脚本编写、常见拦截/锁文件/删除钩子等环境陷阱。触发词：扩展测试、扩展安装、侧载、load-extension、CDP、chrome-extension、MV2、E2E、回归。
+name: browser-extension-install
+description: 在 Windows 桌面 Chromium 系浏览器（Cent/百分/Turbo 等保留 MV2 的国产内核）上安装浏览器扩展（uBO、暴力猴等，含 MV2）并进行自动化测试的通用方法。覆盖：INTERNAL（crx 正规安装）profile 载体搭建、CDP 驱动扩展页、UI 断言、回归脚本编写、常见拦截/锁文件/删除钩子等环境陷阱。触发词：扩展安装、安装扩展、uBO、暴力猴、Tampermonkey、侧载、load-extension、CDP、chrome-extension、MV2、E2E、回归。
 agent_created: true
 ---
 
-# 浏览器扩展安装与 E2E 测试（Windows / Chromium 系）
+# 浏览器扩展安装与测试（Windows / Chromium 系）
 
 ## Overview
 
-本 skill 沉淀了在 Windows 上对 Chromium 系扩展（含 MV2）做真实浏览器安装 + CDP 自动化回归的完整流程。核心经验来自 uBlock Origin fork 的 WebDAV 同步功能多轮 E2E（2026-10 ~ 11）。按本 skill 的步骤走，可以跳过所有已踩过的坑。
+本 skill 沉淀了在 Windows 上为 Chromium 系浏览器安装扩展（uBlock Origin、暴力猴/Tampermonkey 等，含 MV2）以及用 CDP 做自动化回归的完整流程。核心经验来自 uBlock Origin fork 的 WebDAV 同步功能多轮 E2E（2026-10 ~ 11）。按本 skill 的步骤走，可以跳过所有已踩过的坑。
 
 ## 适用判断（先读）
 
 | 场景 | 载体选择 |
 |---|---|
-| 扩展是 MV2、需要完整 webRequest/background_page | **必须用保留 MV2 的国产内核**：Cent（百分）/ Turbo，路径通常在 `D:\Software\`。官方 Chrome 137+ / Edge 已移除 MV2，**不要尝试** |
+| 安装 MV2 扩展（如 uBO、暴力猴旧版）、需要完整 webRequest/background_page | **必须用保留 MV2 的国产内核**：Cent（百分）/ Turbo，路径通常在 `D:\Software\`。官方 Chrome 137+ / Edge 已移除 MV2，**不要尝试** |
 | 扩展是 MV3 | 官方 Chrome 也可，但方法学相同 |
 | 只验证引擎逻辑、不需要 UI | Firefox `web-ext run` + 日志钩子（见 references/advanced.md） |
 
