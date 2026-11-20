@@ -86,14 +86,16 @@ print('OK')
 启动浏览器（上面命令）→ 开发者模式 → 把 crx 拖进 `chrome://extensions` 窗口。
 "命令行传 crx 路径"实测不可靠，不要依赖。
 
-验证（AI 自动）：
+验证（AI 自动）。注意 **Turbo 的扩展条目在 Secure Preferences**（HMAC 保护），Cent 才在 Preferences；且 Turbo 条目无 `state` 键，用 `disable_reasons` 是否为空/`active_bit` 判断启用：
 
 ```bash
 python -c "
-import json
-p = json.load(open(r'<profile>/Default/Preferences', encoding='utf-8'))
+import json, os
+pref = r'<profile>/Default/Secure Preferences' if os.path.exists(r'<profile>/Default/Secure Preferences') else r'<profile>/Default/Preferences'
+p = json.load(open(pref, encoding='utf-8'))
 v = p['extensions']['settings'].get('<扩展ID>', {})
-print('location:', v.get('location'), 'state:', v.get('state'))   # 期望 1 1
+print('location:', v.get('location'))          # 期望 1 (INTERNAL)
+print('disable_reasons:', v.get('disable_reasons'))  # 期望 None/[]（空=启用）
 "
 ```
 
@@ -129,6 +131,8 @@ curl -s --noproxy "*" http://127.0.0.1:9222/json/version   # Quetta 同理，soc
 
 ### Quetta（内核新，148）
 
+> 本节基于 2026-10 真机实测结论；2026-11-20 本机无 Quetta，未复测。
+
 - **商店安装**【半自动】：`am start -a android.intent.action.VIEW -d '<商店详情URL>'` 打开页面 → CDP 点 Add to Chrome → uiautomator 找安卓确认框点确认。
 - **本地加载**【人工一次】：扩展页开开发者模式 + 选目录（文件选择器需人工，或 UIA 自动化）。
 - **crx 文件安装**【半自动】：同 Kiwi 侧载流程（文件选择器选中 crx/zip）。
@@ -158,7 +162,7 @@ sleep 12
 5. 点 `+ (from .zip/.crx/.user.js)` 按钮【AI 自动】：uiautomator dump 找该文本坐标 → `input tap`；
 6. 文件选择器里选中 vm.zip【AI 自动】：uiautomator dump 找文件名坐标 → `input tap`；找不到就 `input swipe` 滚动再 dump；
 7. 安装成功列表出现条目并标 "Not from Web Store."（正常）；重启浏览器生效【AI 自动】：`am force-stop` + `am start`；
-8. 验证【AI 自动】：CDP `/json` 看扩展后台 target，或 uiautomator dump 扩展页列表文本。
+8. 验证【AI 自动】：uiautomator dump 扩展页列表文本（更可靠，能读到名称/版本/ID）；CDP `/json` 的扩展后台 target **只有扩展实际运行时才出现**，不能作为"已安装"的判据。重启浏览器后扩展仍存在 = 持久化成功（实测 2026-11-20：VM 2.50.0 侧载后 force-stop 重启仍在）。
 
 Kiwi 专属注意：
 - 必须 x86 构建（文件名含 `-x86-`）；arm64 走 houdini 翻译，渲染进程被 SIGSYS 全灭（页面全白）；
@@ -196,5 +200,9 @@ Kiwi/Quetta 与 PC 相同：扩展页开「开发者模式」→「加载已解�
 | RDP 断开后鼠标注入全失效 | 会话进入输入不可用状态 | CDP 方案不受影响（选 CDP 而非 UI 自动化的理由）；原生对话框自动化只能在 RDP 活跃时做 |
 | Kiwi 商店装扩展无反应 | 商店按内核版本判不兼容 | 走 crx/zip 侧载（见安卓端 Kiwi 节） |
 | Kiwi arm64 构建 → 页面全白 | houdini 翻译下渲染进程被 SIGSYS 全灭 | 必须用 x86 构建（文件名含 `-x86-`） |
+| Python/Node 脚本连 CDP 全部超时或 evaluate 返回 None | websocket-client / Node WebSocket 读 http_proxy 环境变量走了代理 | 脚本开头清 `http_proxy/https_proxy` 环境变量；Node 端 cdp.js 已内置 |
+| AI 测试脚本退出后浏览器实例跟着消失 | 父进程退出触发 job object 连坐（同 avd-boot 模拟器被杀机制） | 单脚本内完成"启动→测试→收尾"，父进程常驻；或系统级方式常驻 |
+| Python websocket-client `create_connection` 报 `'str' object cannot be interpreted as an integer` | 代理环境下 websocket-client 内部类型冲突 | 同上，清代理变量后消失 |
+| `am start -d 'chrome://extensions/'` 打不开扩展页 | intent 被拦（Kiwi 多版本复现，2026-11-20 两次实测） | 用 CDP 对已有标签 `Page.navigate`，或人工走 Kiwi 菜单 |
 | crx 在安卓文件选择器里不显示 | SAF 不索引 .crx 后缀 | 复制改名 .zip + media 扫描（见 Kiwi 侧载步骤 2） |
 | 删 profile 时进程退出/挂起 | WorkBuddy safe-delete 钩子拦 >50 文件删除 | 测试脚本清理加环境变量门控，小目录用 cmd rmdir 强清 |
