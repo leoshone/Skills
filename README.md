@@ -9,4 +9,4 @@
 
 ## 使用
 
-把对应 skill 目录复制到 `~/.workbuddy/skills/`（用户级）或项目 `.workbuddy/skills/`（项目级）即可。
+把对应 skill 目录复制到项目级。
