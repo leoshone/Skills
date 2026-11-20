@@ -51,49 +51,33 @@ agent_created: true
 
 人工安装时（仅需要人点一次确认框）：CDP 打开商店详情页 → 人点「添加至 Chrome」和「添加扩展程序」→ AI 验证 Secure Preferences 出现条目。
 
-### crx 文件安装（MV2 / 无商店版本）
+### crx 文件安装（MV2 / 无商店版本）【AI 自动】
 
-两种做法：
-
-**做法 1：INTERNAL 模板 profile（【AI 自动】，推荐用于自动化回归）**
-
-扩展以 crx 正规装进 profile 后（`Preferences` 里 `location:1`、`state:1`），后续都可脚本化。一次性搭建【人工一次】：
-
-1. 启动浏览器开「开发者模式」，把 crx 拖进 `chrome://extensions`；
-2. 之后 AI 即可通过复制模板 + 覆盖 payload 实现全自动安装（见下）。
-
-AI 自动复制模板安装（Cent/Turbo 不做 payload hash 校验）：
+**全自动流程（2026-11-21 实测通过，Turbo 156）**——三个脚本在 `scripts/`：
 
 ```bash
-python -c "
-import shutil, os, json, subprocess
-TEMPLATE = r'<模板 profile>'
-PROFILE  = r'<本次 profile>'
-EXT_ID   = '<扩展ID>'
-BUILD    = r'<解包构建目录>'
-if os.path.isdir(PROFILE):
-    subprocess.run(['cmd','/c','rmdir','/s','/q',PROFILE])
-shutil.copytree(TEMPLATE, PROFILE, dirs_exist_ok=True)
-payload = os.path.join(PROFILE,'Default','Extensions',EXT_ID,os.listdir(os.path.join(TEMPLATE,'Default','Extensions',EXT_ID))[0])
-for root, dirs, files in os.walk(BUILD):
-    rel = os.path.relpath(root, BUILD)
-    os.makedirs(os.path.join(payload, rel), exist_ok=True)
-    for f in files: shutil.copy2(os.path.join(root,f), os.path.join(payload,rel,f))
-pref = os.path.join(PROFILE,'Default','Preferences')
-prefs = json.load(open(pref, encoding='utf-8'))
-entry = prefs['extensions']['settings'][EXT_ID]
-entry['manifest']['version'] = json.load(open(os.path.join(BUILD,'manifest.json'), encoding='utf-8'))['version']
-json.dump(prefs, open(pref,'w', encoding='utf-8'))
-print('OK')
-"
+# Step 1: 从运行中的浏览器主 profile 抽取最小模板（解决"浏览器占用无法复制 profile"痛点）
+#   只复制 Extensions payload + Preferences 注册条目 + Local State，全部未被锁定的文件
+node scripts/make-min-template.js "D:\Software\Turbo\User Data" "<模板目录>" <扩展ID1> [扩展ID2...]
+
+# Step 2: 模板 → 本次运行 profile（复制 + 覆盖 payload + 同步版本号 + 清扩展存储 + 校验 location=1）
+node scripts/install-internal.js "<模板目录>" "<本次 profile 目录>" <扩展ID> <解包构建目录>
+
+# Step 3: 启动浏览器（--user-data-dir 指向本次 profile + CDP 端口）后验证
+node scripts/check-extensions.js     # 列已装扩展（CDP 导航到 chrome://extensions）
+node scripts/list-ext-detail.js      # 读扩展名/ID
 ```
 
-**做法 2：拖入 crx（【人工一次】）**
+Step 1 也可以省略——任何"关闭状态且装好扩展"的 profile 都可直接当模板给 Step 2。
+不要拿**正在运行的**主 profile 当模板复制整目录（Cache/Network/Cookies 被锁定，robocopy 会卡死或 rc=9；这就是提供 make-min-template 的原因）。
 
-启动浏览器（上面命令）→ 开发者模式 → 把 crx 拖进 `chrome://extensions` 窗口。
-"命令行传 crx 路径"实测不可靠，不要依赖。
+验证扩展已加载（AI 自动）：CDP `/json` 出现 `chrome-extension://<id>/...` target（MV2 是 `background.html`，MV3 是 `sw.js`）；或扩展页 DOM 读取（check-extensions.js）。
 
-验证（AI 自动）。注意 **Turbo 的扩展条目在 Secure Preferences**（HMAC 保护），Cent 才在 Preferences；且 Turbo 条目无 `state` 键，用 `disable_reasons` 是否为空/`active_bit` 判断启用：
+**人工一次搭建模板的两种方式**（make-min-template 不适用时）：
+1. 启动浏览器开「开发者模式」，把 crx 拖进 `chrome://extensions`（"命令行传 crx 路径"实测不可靠）；
+2. 或直接用 Step 1 从运行中的主 profile 抽取（零人工，推荐）。
+
+启动后文件级验证（install-internal.js 已内置；单独验证时）：
 
 ```bash
 python -c "
@@ -185,7 +169,7 @@ Kiwi/Quetta 与 PC 相同：扩展页开「开发者模式」→「加载已解�
 
 ## CDP 自动化回归要点（PC 端实测）
 
-全流程回归（模板 profile → 启动 → 驱动扩展页 → 断言）可复用 `scripts/cdp_driver.py`（复制到项目 `_tmp/` 改常量即用）。要点：
+全流程回归（模板 profile → 启动 → 驱动扩展页 → 断言）可复用 `scripts/cdp_driver.py`（Python，复制到项目 `_tmp/` 改常量即用）或 `scripts/cdp.js`（Node）。要点：
 
 - **INTERNAL 模板 profile**：每次测试复制模板再覆盖 payload，并同步 prefs 里的 `manifest.version`；清除扩展存储目录（`Local Extension Settings`/`Sync Extension Settings`/`Local Storage` 下的扩展 ID 目录）得到"全新设备"；
 - 开扩展页用 `Target.createTarget` 钉住 targetId（不要遍历 /json 找，会 attach 错页面）；导航是异步的，轮询 `location.href`；
@@ -215,3 +199,17 @@ Kiwi/Quetta 与 PC 相同：扩展页开「开发者模式」→「加载已解�
 | `am start -d 'chrome://extensions/'` 打不开扩展页 | intent 被拦（Kiwi 多版本复现，2026-11-20 两次实测） | 用 CDP 对已有标签 `Page.navigate`，或人工走 Kiwi 菜单 |
 | crx 在安卓文件选择器里不显示 | SAF 不索引 .crx 后缀 | 复制改名 .zip + media 扫描（见 Kiwi 侧载步骤 2） |
 | 删 profile 时进程退出/挂起 | WorkBuddy safe-delete 钩子拦 >50 文件删除 | 测试脚本清理加环境变量门控，小目录用 cmd rmdir 强清 |
+| 复制运行中浏览器的 profile 卡死/失败 | Cache/Network/Cookies 被运行实例锁定，robocopy 默认重试 100 万次 | 用 `make-min-template.js` 只抽扩展相关文件；robocopy 必须 `/R:1 /W:1` |
+
+## 可复用脚本一览（scripts/，全部 2026-11-20/21 实测通过）
+
+| 脚本 | 用途 | 验证范围 |
+|---|---|---|
+| `make-min-template.js` | 从运行中的浏览器主 profile 抽取最小模板（payload + 注册条目 + Local State） | Turbo 156 ✅ |
+| `install-internal.js` | 模板 → 运行 profile：复制、覆盖 payload、同步版本、清存储、校验 INTERNAL | Turbo 156 端到端 ✅ |
+| `cdp.js` | Node CDP 基础库（清代理、browserApi、attach、evalJson） | Turbo/Kiwi ✅ |
+| `check-extensions.js` | CDP 导航到 chrome://extensions 列扩展数/ID | Turbo/Kiwi ✅ |
+| `list-ext-detail.js` | 读扩展名称/ID 明细 | Kiwi ✅ |
+| `cdp_driver.py` | Python CDP 驱动类（模板 profile、createTarget 钉页、进程树清理） | Cent 150/Turbo 154（历史） |
+
+注：`webstore-install.js`（商店点击链）实测注入免疫无效，未收入本 skill，留存在 violentmonkey-script-install/scripts 供参考。
