@@ -10,21 +10,24 @@ agent_created: true
 
 按平台 → 浏览器组织安装方法。核心经验来自 uBlock Origin fork（ubo_davsync）与暴力猴在 Turbo/Cent/Kiwi/Quetta 上的多轮实测（2026-10 ~ 11）。
 
-**自动化程度标注**：【AI 自动】= 全程命令可执行；【人工一次】= 需要人点一次（AI 可验证结果）；【半自动】= AI 执行 UI 操作（uiautomator/input tap 或 UIA/SendInput），坐标或控件定位可能随版本漂移。
+**自动化程度标注**：【AI 自动】= 全程命令可执行（一次搭建后无需人工）；【人工一次】= 需要人点一次（AI 可验证结果）。
+
+**全自动边界（2026-11-20 实测定论）**：
+- ✅ **全自动可行**：INTERNAL 模板 profile 复制（PC 任意 crx/MV2/MV3，纯文件操作）；安卓 Kiwi 侧载（uiautomator + input tap）
+- ❌ **无法全自动**（Chromium 反自动化设计，注入点击被忽略）：PC 商店「添加至 Chrome」点击链路、`chrome.developerPrivate.loadUnpacked`（Turbo 156 静默失败，连对话框都不弹）
+- 结论：**任何"商店安装/本地加载"的需求，都用 INTERNAL 模板方案实现全自动**；商店安装仅保留人工路径
 
 ## 方法总览
 
 | 平台 | 浏览器 | 内核 | 商店安装 | crx 文件安装 | 本地加载（自开发扩展） |
 |---|---|---|---|---|---|
-| PC | Turbo / Cent（百分） | 新（150+，保留 MV2） | ✅ 商店直接装【半自动】 | ✅ 开发者模式拖入 crx（MV2 可用）【半自动】 | ✅ 加载已解压目录【半自动】 |
+| PC | Turbo / Cent（百分） | 新（150+，保留 MV2） | ✅ 商店直接装【人工确认】 | ✅ INTERNAL 模板【AI 自动】 | ✅ INTERNAL+payload 覆盖【AI 自动】 |
 | PC | 官方 Chrome 137+ / Edge | 新，MV2 已移除 | 仅 MV3 | ❌ MV2 被拒 | 仅 MV3 |
-| 安卓 | Quetta | 新（148） | ✅ 商店直接装【半自动】 | ✅【半自动】 | ✅【半自动】 |
-| 安卓 | Kiwi | 老（137） | ❌ 商店判内核不兼容（实测 2026-11） | ✅ 扩展页侧载 crx/zip【半自动】（**唯一可靠**） | ✅【人工一次】 |
+| 安卓 | Quetta | 新（148） | ✅ 商店直接装（2026-10 实测） | ✅ | ✅ |
+| 安卓 | Kiwi | 老（137） | ❌ 商店判内核不兼容（实测 2026-11） | ✅ 扩展页侧载 crx/zip【AI 自动】（**唯一可靠**） | ✅【人工一次】 |
 | 安卓 | Kiwi 构建要求 | x86 | — | 必须 `-x86-` 构建；arm64 走 houdini 翻译渲染进程全灭（页面全白） | — |
 
-**PC 原生对话框的自动化**（"添加扩展程序？"确认框、"选择文件夹"对话框都不在网页 DOM 里，CDP 点不到）：
-UIA 定位按钮矩形 → `SendInput` 真实鼠标点击（`BM_CLICK`/UIA Invoke 对 IFileDialog 无效）→ 对输入框 hwnd 发 `WM_SETTEXT`（UIA ValuePattern 跨进程失败）→ `SendInput` 点确认。
-注意：RDP 断开后 SendInput/SetCursorPos 全部失效——自动化验证必须在 RDP 活跃时做，或改用下面的 INTERNAL profile 方案（纯文件操作，【AI 自动】）。
+**已废弃的路径（2026-11-20 实测废弃）**：UIA + SendInput 自动化原生对话框。原因：① 商店安装链路对 injected 鼠标事件免疫，点击无效；② Turbo 的 loadUnpacked 静默失败，无对话框可抓；③ RDP 断开后 SendInput 全失效。UIA 相关脚本仅保留用于"读取窗口状态"辅助诊断。
 
 ## PC 端（Turbo / Cent）
 
@@ -37,12 +40,16 @@ UIA 定位按钮矩形 → `SendInput` 真实鼠标点击（`BM_CLICK`/UIA Invok
 # 等 CDP 就绪：轮询 http://127.0.0.1:9447/json/version
 ```
 
-### 商店安装（现成扩展）【半自动】
+### 商店安装（现成扩展）【人工确认——无法全自动，实测结论】
 
-1. AI：CDP `Target.createTarget` 打开商店详情页（如暴力猴 `https://chromewebstore.google.com/detail/violentmonkey/jinjaccalgkegednnccohejagnlnfdag`）；
-2. AI：attach 后 `Runtime.evaluate` 点页面上的「添加至 Chrome」按钮；
-3. **人工/AI-SendInput**：浏览器原生确认框「添加扩展程序？」点确认（见上"原生对话框自动化"）；
-4. AI：验证——CDP `/json` 出现 `background_page` target（MV2）或 `chrome-extension://` 页面。
+**2026-11-20 实测（Turbo 156）**：商店的「添加至 Chrome」点击链路**对自动化免疫**，这是 Chromium 的反自动化设计：
+- JS click（`btn.click()`）：点击后无任何反应（无页面 dialog、无原生窗口、无 target 变化）；
+- SendInput 真实鼠标点击（坐标经 DPI 校准落点准确）：同样无反应——Chromium 对 injected 鼠标事件（LLMHF_INJECTED 标记）在 webstore 流程中专门忽略；
+- `--disable-blink-features=AutomationControlled`（隐藏 navigator.webdriver）也不解锁。
+
+**自动化的正确替代**：不要走商店。把目标 crx 用下面的 INTERNAL 模板方式安装，效果等同（同一扩展、同一来源标记可配），且全自动。
+
+人工安装时（仅需要人点一次确认框）：CDP 打开商店详情页 → 人点「添加至 Chrome」和「添加扩展程序」→ AI 验证 Secure Preferences 出现条目。
 
 ### crx 文件安装（MV2 / 无商店版本）
 
@@ -104,11 +111,13 @@ crx 打包要点（自开发扩展）：
 - 用 `crx3` npm 工具打包；手写 CRX3 protobuf 会被拒（CRX_REQUIRED_PROOF_MISSING）；
 - 安装前提：目标 profile 开发者模式已开，否则 CRX_SIGNATURE_VERIFICATION_FAILED。
 
-### 本地加载（自开发扩展，如 ubo_davsync）【半自动】
+### 本地加载（自开发扩展，如 ubo_davsync）【全自动——用 INTERNAL 方式，不走 loadUnpacked】
 
-1. AI：CDP 打开 `chrome://extensions`（`Target.createTarget`）；
-2. AI：开发者模式 toggle 和「加载已解压的扩展程序」按钮可 JS click，但弹出的文件夹选择框是原生 IFileDialog——需要 UIA+SendInput 自动化（见"原生对话框自动化"）或人工选择目录；
-3. AI：验证——CDP `/json` 出现该扩展 target；改代码后在扩展卡片「重新加载」（这个按钮在 DOM 里，可 JS click）。
+**2026-11-20 实测（Turbo 156）**：`chrome.developerPrivate.loadUnpacked` 在 Turbo 上**静默失败**（触发后无任何文件对话框弹出、12 秒无窗口变化、无返回）——与老 Cent 弹 IFileDialog 的行为不同，UIA 对话框自动化在 Turbo 上无目标可抓。
+
+全自动本地加载的正确方式 = **INTERNAL 模板 + payload 覆盖**（就是上面的"做法 1"）：把解包目录当作 BUILD 传给复制脚本即可，效果等同本地加载，且持久化、无对话框。
+
+人工调试时（写代码热迭代场景）：`chrome://extensions` → 开发者模式 → 「加载已解压的扩展程序」选目录（一次人工）；改代码后点扩展卡片「重新加载」——此按钮在 DOM 里，AI 可 JS click 触发。
 
 不要用 `--load-extension` 命令行参数：
 - 官方 Chrome/Edge：参数已移除 + MV2 被禁，双重不可行；
