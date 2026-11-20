@@ -1,5 +1,5 @@
 ---
-name: launch-avd
+name: avd-launch
 description: 在 Windows 上启动本机 Android 模拟器（AVD）的正确方法——必须用计划任务脱离调用会话启动，否则模拟器会随 CLI/工具调用结束被杀。触发词：启动模拟器、启动AVD、launch emulator、模拟器起不来。
 agent_created: true
 ---
