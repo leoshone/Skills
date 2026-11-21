@@ -1,4 +1,8 @@
 // webstore-install.js — 通过 CDP 在 Chrome Web Store 页自动点"添加至 Chrome"并确认
+// ⚠️ 2026-11-20 实测：此点击链路在 Turbo 156（PC）无效——商店安装对注入点击免疫（反自动化设计）。
+//    安卓 Kiwi 因商店判内核不兼容同样装不上。仅作历史参考保留。
+//    有效替代：browser-extension-install skill 的 make-min-template.js + install-internal.js（PC）
+//    或本 skill 的 crx 侧载流程（安卓 Kiwi）。
 // 用法: node webstore-install.js <store-url>
 // 依赖: cdp.js (同目录)
 'use strict';

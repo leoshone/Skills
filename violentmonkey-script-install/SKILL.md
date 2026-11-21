@@ -93,8 +93,9 @@ const items = await CDP.evalJson(api, `(() => {
 
 ## 可复用脚本
 
-- `scripts/cdp.js` — 零依赖 CDP 工具库（自动重建 forward、GUID ws、activate+attach、带超时 evaluate、截图、waitReady）。复制到项目后 `require('./cdp.js')` 即用。
+- `scripts/cdp.js` — 零依赖 CDP 工具库（自动重建 forward、GUID ws、activate+attach、带超时 evaluate、截图、waitReady）。复制到项目后 `require('./cdp.js')` 即用。（browser-extension-install/scripts 下有同款副本，供其独立使用）
 - `scripts/install-userjs.js` — 一体化安装器：重建 forward/reverse → 起服务提示 → 建 target → 等 confirm 页 → 点安装/重装 → 清理 confirm 标签。自带 6 轮重试。
+- ~~`scripts/webstore-install.js`~~ — 已废弃（2026-11-20 实测商店点击链对注入免疫，详见文件头注释），仅留参考。
 
 ## 进阶
 
